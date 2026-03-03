@@ -32,6 +32,12 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseOptionalNumber(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function toStringArray(value) {
   if (Array.isArray(value)) {
     return value.map((item) => String(item).trim()).filter(Boolean);
@@ -70,31 +76,70 @@ function buildStockPayload(body, companyId, isCreate) {
   const has = (key) => Object.prototype.hasOwnProperty.call(source, key);
 
   if (isCreate) {
-    const symbolInput = String(source.stock_symbol || "").trim();
-    const stockNameInput = String(source.stock_name || "").trim();
+    const symbolInput = String(source.stock_symbol || source.security_symbol || "").trim();
+    const stockNameInput = String(source.security_name || source.stock_name || "").trim();
     const stockName = stockNameInput || symbolInput;
     const stockSymbol = symbolInput || stockNameInput;
-    const currentPrice = toNumber(source.current_price ?? source.stock_price, 0);
-    const totalQuantity = Math.max(0, Math.trunc(toNumber(source.total_quantity ?? source.volume, 0)));
+    const currentPrice = toNumber(
+      source.current_market_price ?? source.current_price ?? source.stock_price,
+      0
+    );
+    const totalQuantity = Math.max(
+      0,
+      Math.trunc(toNumber(source.total_listed_quantity ?? source.total_quantity ?? source.volume, 0))
+    );
     const availableQuantityDefault = totalQuantity;
     const availableQuantity = Math.max(
       0,
-      Math.trunc(toNumber(source.available_quantity, availableQuantityDefault))
+      Math.trunc(toNumber(source.available_trading_quantity ?? source.available_quantity, availableQuantityDefault))
     );
     const volume = Math.max(0, Math.trunc(toNumber(source.volume, totalQuantity)));
     const tags = toStringArray(source.tags);
     const listedExchanges = toStringArray(source.listed_exchanges);
+    const marketCapitalization = toNumber(
+      source.market_metrics?.market_capitalization ?? source.market_capitalization ?? source.market_cap,
+      currentPrice * totalQuantity
+    );
+    const peRatio = toNumber(
+      source.market_metrics?.price_to_earnings_ratio ?? source.price_to_earnings_ratio ?? source.pe_ratio,
+      0
+    );
+    const dividendYield = toNumber(
+      source.market_metrics?.dividend_yield_percentage ?? source.dividend_yield_percentage,
+      0
+    );
+    const fiftyTwoWeekHigh = toNumber(
+      source.market_metrics?.fifty_two_week_high ?? source.fifty_two_week_high ?? source.week_52_high,
+      0
+    );
+    const fiftyTwoWeekLow = toNumber(
+      source.market_metrics?.fifty_two_week_low ?? source.fifty_two_week_low ?? source.week_52_low,
+      0
+    );
+    const now = new Date();
+    const incomingPriceHistory = Array.isArray(source.price_history) ? source.price_history : [];
+    const priceHistory =
+      incomingPriceHistory.length > 0
+        ? incomingPriceHistory.map((entry) => ({
+            recorded_price: toNumber(entry?.recorded_price, currentPrice),
+            recorded_at: entry?.recorded_at ? new Date(entry.recorded_at) : now,
+          }))
+        : [{ recorded_price: currentPrice, recorded_at: now }];
+    const tradingActivityLog = Array.isArray(source.trading_activity_log) ? source.trading_activity_log : [];
 
     return {
       company_id: companyId,
+      issuing_company_id: companyId,
       stock_name: stockName,
+      security_name: stockName,
       stock_symbol: stockSymbol,
       sector: String(source.sector || "").trim(),
       currency: String(source.currency || "INR").trim().toUpperCase(),
       current_price: currentPrice,
+      current_market_price: currentPrice,
       volume,
-      market_cap: toNumber(source.market_cap, currentPrice * totalQuantity),
-      pe_ratio: toNumber(source.pe_ratio, 0),
+      market_cap: marketCapitalization,
+      pe_ratio: peRatio,
       eps: toNumber(source.eps, 0),
       roe: toNumber(source.roe, 0),
       rsi: toNumber(source.rsi, 0),
@@ -102,8 +147,8 @@ function buildStockPayload(body, companyId, isCreate) {
       ma_200: toNumber(source.ma_200, 0),
       day_high: toNumber(source.day_high, 0),
       day_low: toNumber(source.day_low, 0),
-      week_52_high: toNumber(source.week_52_high, 0),
-      week_52_low: toNumber(source.week_52_low, 0),
+      week_52_high: fiftyTwoWeekHigh,
+      week_52_low: fiftyTwoWeekLow,
       tags,
       listed_exchanges: listedExchanges,
       major_shareholders: String(source.major_shareholders || "").trim(),
@@ -118,21 +163,41 @@ function buildStockPayload(body, companyId, isCreate) {
         },
       }),
       is_active: source.is_active === undefined ? true : Boolean(source.is_active),
+      is_trading_active:
+        source.is_trading_active === undefined
+          ? source.is_active === undefined
+            ? true
+            : Boolean(source.is_active)
+          : Boolean(source.is_trading_active),
       stock_price: currentPrice,
       total_quantity: totalQuantity,
+      total_listed_quantity: totalQuantity,
       available_quantity: availableQuantity,
+      available_trading_quantity: availableQuantity,
       profit_percentage: toNumber(source.profit_percentage, 0),
       description: String(source.description || "").trim(),
+      listed_timestamp: source.listed_timestamp ? new Date(source.listed_timestamp) : now,
+      last_updated_timestamp: source.last_updated_timestamp ? new Date(source.last_updated_timestamp) : now,
+      price_history: priceHistory,
+      market_metrics: {
+        market_capitalization: marketCapitalization,
+        price_to_earnings_ratio: peRatio,
+        dividend_yield_percentage: dividendYield,
+        fifty_two_week_high: fiftyTwoWeekHigh,
+        fifty_two_week_low: fiftyTwoWeekLow,
+      },
+      trading_activity_log: tradingActivityLog,
     };
   }
 
   const updates = {};
 
-  if (has("stock_name") || has("stock_symbol")) {
+  if (has("stock_name") || has("security_name") || has("stock_symbol")) {
     const symbolInput = String(source.stock_symbol || "").trim();
-    const stockNameInput = String(source.stock_name || "").trim();
+    const stockNameInput = String(source.security_name || source.stock_name || "").trim();
     if (stockNameInput) {
       updates.stock_name = stockNameInput;
+      updates.security_name = stockNameInput;
       if (!symbolInput) updates.stock_symbol = stockNameInput;
     }
     if (symbolInput) {
@@ -141,24 +206,57 @@ function buildStockPayload(body, companyId, isCreate) {
     }
   }
 
-  if (has("current_price") || has("stock_price")) {
-    const currentPrice = toNumber(source.current_price ?? source.stock_price, 0);
+  if (has("current_price") || has("current_market_price") || has("stock_price")) {
+    const currentPrice = toNumber(source.current_market_price ?? source.current_price ?? source.stock_price, 0);
     updates.current_price = currentPrice;
+    updates.current_market_price = currentPrice;
     updates.stock_price = currentPrice;
+    updates.$push = {
+      ...(updates.$push || {}),
+      price_history: {
+        recorded_price: currentPrice,
+        recorded_at: new Date(),
+      },
+    };
   }
 
-  if (has("total_quantity") || has("volume")) {
-    const totalQuantity = Math.max(0, Math.trunc(toNumber(source.total_quantity ?? source.volume, 0)));
+  if (has("total_quantity") || has("total_listed_quantity") || has("volume")) {
+    const totalQuantity = Math.max(
+      0,
+      Math.trunc(toNumber(source.total_listed_quantity ?? source.total_quantity ?? source.volume, 0))
+    );
     updates.total_quantity = totalQuantity;
+    updates.total_listed_quantity = totalQuantity;
     if (has("volume")) {
       updates.volume = Math.max(0, Math.trunc(toNumber(source.volume, totalQuantity)));
     }
   }
 
-  if (has("available_quantity")) updates.available_quantity = Math.max(0, Math.trunc(toNumber(source.available_quantity, 0)));
+  if (has("available_quantity") || has("available_trading_quantity")) {
+    const availableQuantity = Math.max(
+      0,
+      Math.trunc(toNumber(source.available_trading_quantity ?? source.available_quantity, 0))
+    );
+    updates.available_quantity = availableQuantity;
+    updates.available_trading_quantity = availableQuantity;
+  }
   if (has("volume")) updates.volume = Math.max(0, Math.trunc(toNumber(source.volume, 0)));
-  if (has("market_cap")) updates.market_cap = toNumber(source.market_cap, 0);
-  if (has("pe_ratio")) updates.pe_ratio = toNumber(source.pe_ratio, 0);
+  if (has("market_cap") || has("market_capitalization") || has("market_metrics")) {
+    const marketCap = toNumber(
+      source.market_metrics?.market_capitalization ?? source.market_capitalization ?? source.market_cap,
+      0
+    );
+    updates.market_cap = marketCap;
+    updates["market_metrics.market_capitalization"] = marketCap;
+  }
+  if (has("pe_ratio") || has("price_to_earnings_ratio") || has("market_metrics")) {
+    const pe = toNumber(
+      source.market_metrics?.price_to_earnings_ratio ?? source.price_to_earnings_ratio ?? source.pe_ratio,
+      0
+    );
+    updates.pe_ratio = pe;
+    updates["market_metrics.price_to_earnings_ratio"] = pe;
+  }
   if (has("eps")) updates.eps = toNumber(source.eps, 0);
   if (has("roe")) updates.roe = toNumber(source.roe, 0);
   if (has("rsi")) updates.rsi = toNumber(source.rsi, 0);
@@ -166,8 +264,29 @@ function buildStockPayload(body, companyId, isCreate) {
   if (has("ma_200")) updates.ma_200 = toNumber(source.ma_200, 0);
   if (has("day_high")) updates.day_high = toNumber(source.day_high, 0);
   if (has("day_low")) updates.day_low = toNumber(source.day_low, 0);
-  if (has("week_52_high")) updates.week_52_high = toNumber(source.week_52_high, 0);
-  if (has("week_52_low")) updates.week_52_low = toNumber(source.week_52_low, 0);
+  if (has("week_52_high") || has("fifty_two_week_high") || has("market_metrics")) {
+    const high52 = toNumber(
+      source.market_metrics?.fifty_two_week_high ?? source.fifty_two_week_high ?? source.week_52_high,
+      0
+    );
+    updates.week_52_high = high52;
+    updates["market_metrics.fifty_two_week_high"] = high52;
+  }
+  if (has("week_52_low") || has("fifty_two_week_low") || has("market_metrics")) {
+    const low52 = toNumber(
+      source.market_metrics?.fifty_two_week_low ?? source.fifty_two_week_low ?? source.week_52_low,
+      0
+    );
+    updates.week_52_low = low52;
+    updates["market_metrics.fifty_two_week_low"] = low52;
+  }
+  if (has("dividend_yield_percentage") || has("market_metrics")) {
+    const dividendYield = toNumber(
+      source.market_metrics?.dividend_yield_percentage ?? source.dividend_yield_percentage,
+      0
+    );
+    updates["market_metrics.dividend_yield_percentage"] = dividendYield;
+  }
   if (has("profit_percentage")) updates.profit_percentage = toNumber(source.profit_percentage, 0);
   if (has("sector")) updates.sector = String(source.sector || "").trim();
   if (has("currency")) updates.currency = String(source.currency || "INR").trim().toUpperCase();
@@ -176,7 +295,32 @@ function buildStockPayload(body, companyId, isCreate) {
   if (has("major_shareholders")) updates.major_shareholders = String(source.major_shareholders || "").trim();
   if (has("dividend_history")) updates.dividend_history = String(source.dividend_history || "").trim();
   if (has("stock_category")) updates.stock_category = normalizeStockCategory(source.stock_category);
-  if (has("is_active")) updates.is_active = Boolean(source.is_active);
+  if (has("is_active") || has("is_trading_active")) {
+    const isTradingActive = has("is_trading_active") ? Boolean(source.is_trading_active) : Boolean(source.is_active);
+    updates.is_active = isTradingActive;
+    updates.is_trading_active = isTradingActive;
+  }
+  if (has("issuing_company_id")) {
+    updates.issuing_company_id = String(source.issuing_company_id || companyId || "").trim();
+  }
+  if (has("security_name")) {
+    const securityName = String(source.security_name || "").trim();
+    if (securityName) {
+      updates.security_name = securityName;
+      if (!has("stock_name")) updates.stock_name = securityName;
+    }
+  }
+  if (has("price_history") && Array.isArray(source.price_history)) {
+    updates.price_history = source.price_history.map((entry) => ({
+      recorded_price: toNumber(entry?.recorded_price, 0),
+      recorded_at: entry?.recorded_at ? new Date(entry.recorded_at) : new Date(),
+    }));
+  }
+  if (has("trading_activity_log") && Array.isArray(source.trading_activity_log)) {
+    updates.trading_activity_log = source.trading_activity_log;
+  }
+  if (has("listed_timestamp")) updates.listed_timestamp = new Date(source.listed_timestamp);
+  if (has("last_updated_timestamp")) updates.last_updated_timestamp = new Date(source.last_updated_timestamp);
   if (has("description")) updates.description = String(source.description || "").trim();
 
   return updates;
@@ -321,8 +465,15 @@ app.get("/api/stocks", authMiddleware, async (req, res) => {
       query.company_id = companyId.toString();
     }
     if (availableOnly === "true") {
-      query.available_quantity = { $gt: 0 };
-      query.is_active = true;
+      query.$and = [
+        ...(query.$and || []),
+        {
+          $or: [{ available_trading_quantity: { $gt: 0 } }, { available_quantity: { $gt: 0 } }],
+        },
+        {
+          $or: [{ is_trading_active: true }, { is_active: true }],
+        },
+      ];
     }
     if (ids) {
       const idList = ids
@@ -361,6 +512,8 @@ app.post("/api/stocks", authMiddleware, async (req, res) => {
       ...payload,
       created_at: now,
       updated_at: now,
+      listed_timestamp: payload.listed_timestamp || now,
+      last_updated_timestamp: payload.last_updated_timestamp || now,
     });
 
     return res.status(201).json({ data: stock });
@@ -388,11 +541,113 @@ app.patch("/api/stocks/:id", authMiddleware, async (req, res) => {
 
     const updates = buildStockPayload(req.body || {}, userId, false);
     updates.updated_at = new Date();
+    updates.last_updated_timestamp = new Date();
 
     Object.keys(updates).forEach((key) => updates[key] === undefined && delete updates[key]);
+    const pushUpdates = updates.$push || undefined;
+    if (pushUpdates) delete updates.$push;
+    const queryUpdate = pushUpdates ? { $set: updates, $push: pushUpdates } : { $set: updates };
 
-    const updated = await Stock.findOneAndUpdate({ id: stockId }, { $set: updates }, { new: true }).lean();
+    const updated = await Stock.findOneAndUpdate({ id: stockId }, queryUpdate, { new: true }).lean();
     return res.json({ data: updated });
+  } catch (error) {
+    return res.status(500).json({ error: normalizeError(error) });
+  }
+});
+
+app.get("/api/analysis/dashboard", authMiddleware, async (req, res) => {
+  try {
+    const page = Math.max(1, Number.parseInt(String(req.query.page || "1"), 10) || 1);
+    const limit = Math.max(1, Math.min(100, Number.parseInt(String(req.query.limit || "10"), 10) || 10));
+    const skip = (page - 1) * limit;
+    const minPrice = parseOptionalNumber(req.query.minPrice);
+    const maxPrice = parseOptionalNumber(req.query.maxPrice);
+
+    const andFilters = [];
+    if (minPrice !== undefined) andFilters.push({ current_market_price: { $gte: minPrice } });
+    if (maxPrice !== undefined) andFilters.push({ current_market_price: { $lte: maxPrice } });
+    const filter = andFilters.length ? { $and: andFilters } : {};
+
+    const [marketOverviewRaw, topStocks, paginatedStocks, investorPortfolio, totalCount] = await Promise.all([
+      Stock.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: null,
+            total_market_capitalization: {
+              $sum: {
+                $ifNull: ["$market_metrics.market_capitalization", { $ifNull: ["$market_cap", 0] }],
+              },
+            },
+            average_market_price: {
+              $avg: {
+                $ifNull: ["$current_market_price", { $ifNull: ["$current_price", "$stock_price"] }],
+              },
+            },
+          },
+        },
+      ]),
+      Stock.find(filter, {
+        security_name: 1,
+        current_market_price: 1,
+        "market_metrics.market_capitalization": 1,
+        _id: 0,
+      })
+        .sort({ current_market_price: -1 })
+        .limit(5)
+        .lean(),
+      Stock.find(filter, {
+        security_name: 1,
+        current_market_price: 1,
+        "market_metrics.market_capitalization": 1,
+        _id: 0,
+      })
+        .sort({ current_market_price: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Stock.find(
+        {
+          trading_activity_log: {
+            $elemMatch: { investor_id: req.auth.userId },
+          },
+        },
+        {
+          security_name: 1,
+          current_market_price: 1,
+          "market_metrics.market_capitalization": 1,
+          _id: 0,
+        }
+      )
+        .sort({ current_market_price: -1 })
+        .limit(20)
+        .lean(),
+      Stock.countDocuments(filter),
+    ]);
+
+    const marketOverview = marketOverviewRaw[0] || {
+      total_market_capitalization: 0,
+      average_market_price: 0,
+    };
+
+    return res.json({
+      data: {
+        market_overview: marketOverview,
+        stock_rankings: paginatedStocks,
+        top_5_stocks: topStocks,
+        investor_portfolio: investorPortfolio,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          total_pages: Math.max(1, Math.ceil(totalCount / limit)),
+        },
+        filters: {
+          min_price: minPrice,
+          max_price: maxPrice,
+        },
+      },
+    });
   } catch (error) {
     return res.status(500).json({ error: normalizeError(error) });
   }
@@ -463,11 +718,13 @@ app.post("/api/transactions/purchase", authMiddleware, async (req, res) => {
     if (!stock) {
       return res.status(404).json({ error: "Stock not found" });
     }
-    if (quantity > stock.available_quantity) {
+    if (quantity > Number(stock.available_trading_quantity ?? stock.available_quantity ?? 0)) {
       return res.status(400).json({ error: "Not enough stock quantity available" });
     }
 
-    const effectivePrice = Number(stock.current_price ?? stock.stock_price ?? 0);
+    const effectivePrice = Number(
+      stock.current_market_price ?? stock.current_price ?? stock.stock_price ?? 0
+    );
     const totalPrice = quantity * effectivePrice;
     if (buyerProfile.wallet_balance < totalPrice) {
       return res.status(400).json({ error: "Insufficient wallet balance" });
@@ -476,8 +733,8 @@ app.post("/api/transactions/purchase", authMiddleware, async (req, res) => {
     const decreasedStock = await Stock.findOneAndUpdate(
       { id: stockId, available_quantity: { $gte: quantity } },
       {
-        $inc: { available_quantity: -quantity },
-        $set: { updated_at: new Date() },
+        $inc: { available_quantity: -quantity, available_trading_quantity: -quantity },
+        $set: { updated_at: new Date(), last_updated_timestamp: new Date() },
       },
       { new: true }
     ).lean();
@@ -498,7 +755,10 @@ app.post("/api/transactions/purchase", authMiddleware, async (req, res) => {
     if (!updatedProfile) {
       await Stock.updateOne(
         { id: stockId },
-        { $inc: { available_quantity: quantity }, $set: { updated_at: new Date() } }
+        {
+          $inc: { available_quantity: quantity, available_trading_quantity: quantity },
+          $set: { updated_at: new Date(), last_updated_timestamp: new Date() },
+        }
       );
       return res.status(409).json({ error: "Wallet balance changed. Try again." });
     }
@@ -515,12 +775,31 @@ app.post("/api/transactions/purchase", authMiddleware, async (req, res) => {
         created_at: new Date(),
       });
 
+      await Stock.updateOne(
+        { id: stockId },
+        {
+          $push: {
+            trading_activity_log: {
+              investor_id: buyerId,
+              transaction_type: "BUY",
+              transaction_quantity: quantity,
+              execution_price: effectivePrice,
+              transaction_timestamp: new Date(),
+            },
+          },
+          $set: { last_updated_timestamp: new Date(), updated_at: new Date() },
+        }
+      );
+
       return res.status(201).json({ data: transaction, wallet_balance: updatedProfile.wallet_balance });
     } catch (error) {
       await Promise.all([
         Stock.updateOne(
           { id: stockId },
-          { $inc: { available_quantity: quantity }, $set: { updated_at: new Date() } }
+          {
+            $inc: { available_quantity: quantity, available_trading_quantity: quantity },
+            $set: { updated_at: new Date(), last_updated_timestamp: new Date() },
+          }
         ),
         Profile.updateOne(
           { user_id: buyerId },

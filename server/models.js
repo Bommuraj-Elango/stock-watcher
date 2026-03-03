@@ -45,6 +45,36 @@ const stockCategorySchema = new mongoose.Schema(
   { _id: false, strict: false }
 );
 
+const priceHistorySchema = new mongoose.Schema(
+  {
+    recorded_price: { type: Number, required: true, default: 0 },
+    recorded_at: { type: Date, default: Date.now },
+  },
+  { _id: false, strict: false }
+);
+
+const marketMetricsSchema = new mongoose.Schema(
+  {
+    market_capitalization: { type: Number, default: 0 },
+    price_to_earnings_ratio: { type: Number, default: 0 },
+    dividend_yield_percentage: { type: Number, default: 0 },
+    fifty_two_week_high: { type: Number, default: 0 },
+    fifty_two_week_low: { type: Number, default: 0 },
+  },
+  { _id: false, strict: false }
+);
+
+const tradingActivitySchema = new mongoose.Schema(
+  {
+    investor_id: { type: String, default: "" },
+    transaction_type: { type: String, enum: ["BUY", "SELL"], default: "BUY" },
+    transaction_quantity: { type: Number, default: 0 },
+    execution_price: { type: Number, default: 0 },
+    transaction_timestamp: { type: Date, default: Date.now },
+  },
+  { _id: false, strict: false }
+);
+
 const stockSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true, index: true },
@@ -85,6 +115,26 @@ const stockSchema = new mongoose.Schema(
     available_quantity: { type: Number, required: true, default: 0 },
     profit_percentage: { type: Number, default: 0 },
     description: { type: String, default: "" },
+    security_name: { type: String, default: "" },
+    current_market_price: { type: Number, default: 0 },
+    total_listed_quantity: { type: Number, default: 0 },
+    available_trading_quantity: { type: Number, default: 0 },
+    issuing_company_id: { type: String, default: "", index: true },
+    is_trading_active: { type: Boolean, default: true },
+    listed_timestamp: { type: Date, default: Date.now },
+    last_updated_timestamp: { type: Date, default: Date.now },
+    price_history: { type: [priceHistorySchema], default: [] },
+    market_metrics: {
+      type: marketMetricsSchema,
+      default: () => ({
+        market_capitalization: 0,
+        price_to_earnings_ratio: 0,
+        dividend_yield_percentage: 0,
+        fifty_two_week_high: 0,
+        fifty_two_week_low: 0,
+      }),
+    },
+    trading_activity_log: { type: [tradingActivitySchema], default: [] },
     created_at: { type: Date, default: Date.now },
     updated_at: { type: Date, default: Date.now },
   },
@@ -111,6 +161,8 @@ profileSchema.pre("save", function updateTimestamp(next) {
 });
 
 stockSchema.pre("save", function updateTimestamp(next) {
+  if (!this.listed_timestamp) this.listed_timestamp = this.created_at || new Date();
+  this.last_updated_timestamp = new Date();
   this.updated_at = new Date();
   next();
 });

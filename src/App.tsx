@@ -11,6 +11,7 @@ import DashboardLayout from "./components/DashboardLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import CompanyStocks from "./pages/company/CompanyStocks";
 import CompanyAnalytics from "./pages/company/CompanyAnalytics";
+import AnalysisDashboard from "./pages/company/AnalysisDashboard";
 import BrowseStocks from "./pages/buyer/BrowseStocks";
 import BuyerPortfolio from "./pages/buyer/BuyerPortfolio";
 import ProfitAnalysis from "./pages/buyer/ProfitAnalysis";
@@ -31,6 +32,7 @@ const App = () => (
             <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout><Dashboard /></DashboardLayout></ProtectedRoute>} />
             <Route path="/dashboard/stocks" element={<ProtectedRoute requiredRole="company"><DashboardLayout><CompanyStocks /></DashboardLayout></ProtectedRoute>} />
             <Route path="/dashboard/analytics" element={<ProtectedRoute requiredRole="company"><DashboardLayout><CompanyAnalytics /></DashboardLayout></ProtectedRoute>} />
+            <Route path="/dashboard/analysis-dashboard" element={<ProtectedRoute><DashboardLayout><AnalysisDashboard /></DashboardLayout></ProtectedRoute>} />
             <Route path="/dashboard/browse" element={<ProtectedRoute requiredRole="buyer"><DashboardLayout><BrowseStocks /></DashboardLayout></ProtectedRoute>} />
             <Route path="/dashboard/portfolio" element={<ProtectedRoute requiredRole="buyer"><DashboardLayout><BuyerPortfolio /></DashboardLayout></ProtectedRoute>} />
             <Route path="/dashboard/analysis" element={<ProtectedRoute requiredRole="buyer"><DashboardLayout><ProfitAnalysis /></DashboardLayout></ProtectedRoute>} />

@@ -12,6 +12,7 @@ const companyLinks = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Stocks", url: "/dashboard/stocks", icon: Package },
   { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3 },
+  { title: "Analysis Dashboard", url: "/dashboard/analysis-dashboard", icon: Trophy },
 ];
 
 const buyerLinks = [

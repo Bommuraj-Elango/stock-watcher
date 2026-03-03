@@ -132,3 +132,17 @@ export const transactionApi = {
     ),
 };
 
+export const analysisApi = {
+  dashboard: (params?: { page?: number; limit?: number; minPrice?: number; maxPrice?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.minPrice !== undefined) query.set("minPrice", String(params.minPrice));
+    if (params?.maxPrice !== undefined) query.set("maxPrice", String(params.maxPrice));
+    return request<{ data: any }>(
+      `/analysis/dashboard${query.toString() ? `?${query.toString()}` : ""}`,
+      {},
+      true
+    );
+  },
+};
